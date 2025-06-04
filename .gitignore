@@ -1,0 +1,27 @@
+# Python 관련
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+
+# 가상환경 폴더 (venv, env 등)
+venv/
+env/
+.venv/
+.env/
+
+# 환경 변수 파일
+.env
+
+# 로그 파일
+*.log
+
+# 다운로드 파일들 (음악 파일 등)
+downloads/
+*.mp3
+*.wav
+
+# OS별 불필요 파일
+.DS_Store
+Thumbs.db
