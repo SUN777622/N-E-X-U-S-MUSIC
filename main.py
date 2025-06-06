@@ -1,3 +1,6 @@
+import discord
+from discord import app_commands
+from discord.ext import commands
 import yt_dlp
 import os
 from flask import Flask
@@ -16,6 +19,9 @@ def run_web():
     import os
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
+
+# 아래 코드로 백그라운드에서 Flask 서버 실행
+Thread(target=run_web).start()
 
 # ================== 자동 재시작 함수 ==================
 async def auto_restart(interval_sec=3600):
