@@ -140,31 +140,39 @@ async def search(interaction: discord.Interaction, query: str):
             },
         }
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(query, download=False)
-            videos = info.get('entries', [])
+with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    info = ydl.extract_info(query, download=False)
+    videos = info.get('entries', [])
 
-            # unavailable 영상이나 길이 없는 영상은 필터링
-            videos = [
-                v for v in videos
-                if v and not v.get('is_unavailable') and 'webpage_url' in v and v.get('duration') and v['duration'] > 0
-            ]
+    filtered_videos = []
+    for v in videos:
+        # 재생 가능 여부 더 꼼꼼히 체크
+        if (v
+            and not v.get('is_unavailable', False)
+            and 'webpage_url' in v
+            and v.get('duration', 0) > 0
+            and not v.get('private', False)
+            and not v.get('age_limit', 0) > 18
+        ):
+            filtered_videos.append(v)
 
-            if not videos:
-                await interaction.followup.send("❌ 재생 가능한 영상이 없습니다.", ephemeral=True)
-                return
+    if not filtered_videos:
+        await interaction.followup.send("❌ 재생 가능한 영상이 없습니다.", ephemeral=True)
+        return
 
-        class SongSelect(discord.ui.Select):
-            def __init__(self, videos):
-                options = [
-                    discord.SelectOption(
-                        label=f"{i+1}. {video.get('title')[:95]}",
-                        value=video['webpage_url'],
-                        description=f"{video.get('duration_string', '길이 정보 없음')}"
-                    )
-                    for i, video in enumerate(videos[:5])
-                ]
-                super().__init__(placeholder="노래를 선택하세요!", options=options)
+# 여기서 filtered_videos 사용해서 버튼 생성
+class SongSelect(discord.ui.Select):
+    def __init__(self, videos):
+        options = [
+            discord.SelectOption(
+                label=f"{i+1}. {video.get('title', '제목 없음')[:95]}",
+                value=video['webpage_url'],
+                description=f"{video.get('duration_string', '길이 정보 없음')}"
+            )
+            for i, video in enumerate(videos[:5])
+        ]
+        super().__init__(placeholder="노래를 선택하세요!", options=options)
+
 
             async def callback(self, interaction2: discord.Interaction):
                 await interaction2.response.send_message("노래를 재생합니다...", ephemeral=True)
