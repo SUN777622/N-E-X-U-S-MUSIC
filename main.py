@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import yt_dlp
+from yt_dlp.utils import DownloadError
 import os
 from flask import Flask
 from threading import Thread
@@ -106,12 +107,19 @@ async def play_song(interaction: discord.Interaction, url: str):
         else:
             await interaction.response.send_message(f"🎶 **{title}** 재생 중!")
 
+    except DownloadError:
+        msg = "❌ 이 영상은 재생할 수 없습니다. 다른 곡을 선택해 주세요."
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
     except Exception as e:
         print(f"[재생 오류]: {type(e).__name__} - {e}")
+        msg = f"❌ 오류 발생:\n```{type(e).__name__}: {e}```"
         if interaction.response.is_done():
-            await interaction.followup.send(f"❌ 오류 발생:\n```{type(e).__name__}: {e}```", ephemeral=True)
+            await interaction.followup.send(msg, ephemeral=True)
         else:
-            await interaction.response.send_message(f"❌ 오류 발생:\n```{type(e).__name__}: {e}```", ephemeral=True)
+            await interaction.response.send_message(msg, ephemeral=True)
 
 # 🔍 검색 명령어
 @bot.tree.command(name="검색", description="노래를 검색해 재생합니다.")
@@ -156,7 +164,7 @@ async def search(interaction: discord.Interaction, query: str):
                 super().__init__(placeholder="노래를 선택하세요!", options=options)
 
             async def callback(self, interaction2: discord.Interaction):
-                # interaction2에 바로 응답하여 defer 문제 방지
+                # 선택 즉시 응답하여 defer 문제 방지
                 await interaction2.response.send_message("노래를 재생합니다...", ephemeral=True)
                 await play_song(interaction2, self.values[0])
 
