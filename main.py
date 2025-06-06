@@ -113,6 +113,8 @@ async def search(interaction: discord.Interaction, query: str):
             'no_warnings': True,
             'geo_bypass': True,
             'http_headers': {'User-Agent': 'Mozilla/5.0'},
+            'geo_bypass_country': 'US',
+            'geo_bypass_ip_block': 'US',
         }
 
         videos = []
