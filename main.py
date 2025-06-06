@@ -19,7 +19,17 @@ def run_web():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
-Thread(target=run_web).start()
+# 봇 클래스
+class CustomBot(commands.Bot):
+    async def setup_hook(self):
+        self.loop.create_task(auto_restart(3600))  # 1시간마다 재시작
+
+intents = discord.Intents.default()
+intents.message_content = True
+intents.voice_states = True
+
+bot = CustomBot(command_prefix="!", intents=intents, help_command=None)
+now_playing = {}
 
 # ⏱️ 1시간마다 자동 재시작
 async def auto_restart(interval_sec=3600):
@@ -32,18 +42,6 @@ async def auto_restart(interval_sec=3600):
         except Exception as e:
             print(f"[❌ 재시작 실패] {e}")
             sys.exit()
-
-# 봇 클래스
-class CustomBot(commands.Bot):
-    async def setup_hook(self):
-        self.loop.create_task(auto_restart(3600))  # 1시간마다 재시작
-
-intents = discord.Intents.default()
-intents.message_content = True
-intents.voice_states = True
-
-bot = CustomBot(command_prefix="!", intents=intents, help_command=None)
-now_playing = {}
 
 # 봇 준비 이벤트
 @bot.event
@@ -61,7 +59,10 @@ async def on_ready():
 async def play_song(interaction: discord.Interaction, url: str):
     try:
         if not interaction.user.voice or not interaction.user.voice.channel:
-            await interaction.followup.send("먼저 음성 채널에 접속해 주세요!", ephemeral=True)
+            if interaction.response.is_done():
+                await interaction.followup.send("먼저 음성 채널에 접속해 주세요!", ephemeral=True)
+            else:
+                await interaction.response.send_message("먼저 음성 채널에 접속해 주세요!", ephemeral=True)
             return
 
         voice_client = interaction.guild.voice_client
@@ -99,11 +100,18 @@ async def play_song(interaction: discord.Interaction, url: str):
 
         voice_client.play(source)
         now_playing[interaction.guild.id] = title
-        await interaction.followup.send(f"🎶 **{title}** 재생 중!")
+
+        if interaction.response.is_done():
+            await interaction.followup.send(f"🎶 **{title}** 재생 중!")
+        else:
+            await interaction.response.send_message(f"🎶 **{title}** 재생 중!")
 
     except Exception as e:
         print(f"[재생 오류]: {type(e).__name__} - {e}")
-        await interaction.followup.send(f"❌ 오류 발생:\n```{type(e).__name__}: {e}```", ephemeral=True)
+        if interaction.response.is_done():
+            await interaction.followup.send(f"❌ 오류 발생:\n```{type(e).__name__}: {e}```", ephemeral=True)
+        else:
+            await interaction.response.send_message(f"❌ 오류 발생:\n```{type(e).__name__}: {e}```", ephemeral=True)
 
 # 🔍 검색 명령어
 @bot.tree.command(name="검색", description="노래를 검색해 재생합니다.")
@@ -125,7 +133,11 @@ async def search(interaction: discord.Interaction, query: str):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(query, download=False)
             videos = info.get('entries', [])
-            videos = [v for v in videos if not v.get('is_unavailable') and 'webpage_url' in v]
+            # 영상 필터링 강화
+            videos = [
+                v for v in videos
+                if not v.get('is_unavailable') and 'webpage_url' in v and v.get('duration') and v['duration'] > 0
+            ]
 
             if not videos:
                 await interaction.followup.send("❌ 재생 가능한 영상이 없습니다.", ephemeral=True)
@@ -144,7 +156,8 @@ async def search(interaction: discord.Interaction, query: str):
                 super().__init__(placeholder="노래를 선택하세요!", options=options)
 
             async def callback(self, interaction2: discord.Interaction):
-                await interaction2.response.defer()
+                # interaction2에 바로 응답하여 defer 문제 방지
+                await interaction2.response.send_message("노래를 재생합니다...", ephemeral=True)
                 await play_song(interaction2, self.values[0])
 
         view = discord.ui.View(timeout=60)
