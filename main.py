@@ -44,6 +44,7 @@ async def auto_restart(interval_sec=3600):
 async def on_ready():
     activity = discord.Activity(type=discord.ActivityType.listening, name="/검색")
     await bot.change_presence(activity=activity)
+    print(f"{bot.user} 준비 완료.")
     try:
         synced = await bot.tree.sync()
         print(f"{len(synced)}개의 슬래시 명령어 동기화됨.")
@@ -53,7 +54,10 @@ async def on_ready():
 async def play_song(interaction: discord.Interaction, url: str):
     try:
         if not interaction.user.voice or not interaction.user.voice.channel:
-            await interaction.followup.send("❗ 먼저 음성 채널에 접속해 주세요!", ephemeral=True)
+            if interaction.response.is_done():
+                await interaction.followup.send("먼저 음성 채널에 접속해 주세요!", ephemeral=True)
+            else:
+                await interaction.response.send_message("먼저 음성 채널에 접속해 주세요!", ephemeral=True)
             return
 
         voice_client = interaction.guild.voice_client
@@ -69,8 +73,11 @@ async def play_song(interaction: discord.Interaction, url: str):
             'quiet': True,
             'nocheckcertificate': True,
             'default_search': 'auto',
-            'http_headers': {'User-Agent': 'Mozilla/5.0'},
-            'geo_bypass': True
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Referer': 'https://www.youtube.com/'
+            },
         }
 
         ffmpeg_opts = {
@@ -78,11 +85,20 @@ async def play_song(interaction: discord.Interaction, url: str):
             'options': '-vn',
         }
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            audio_url = info['url']
-            title = info.get('title', '알 수 없는 제목')
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                audio_url = info['url']
+                title = info.get('title', '알 수 없는 제목')
+        except yt_dlp.utils.DownloadError as e:
+            print(f"[❌ 다운로드 오류]: {e}")
+            if interaction.response.is_done():
+                await interaction.followup.send("❌ 이 영상은 재생할 수 없습니다. 다른 영상을 선택해주세요.", ephemeral=True)
+            else:
+                await interaction.response.send_message("❌ 이 영상은 재생할 수 없습니다. 다른 영상을 선택해주세요.", ephemeral=True)
+            return
 
+        # Render 환경에 맞게 ffmpeg 경로 수정 필요 시 여기서 수정하세요
         ffmpeg_path = "/nix/store/3zc5jbvqzrn8zmva4fx5p0nh4yy03wk4-ffmpeg-6.1.1-bin/bin/ffmpeg"
         source = discord.FFmpegOpusAudio(audio_url, executable=ffmpeg_path, **ffmpeg_opts)
 
@@ -92,52 +108,49 @@ async def play_song(interaction: discord.Interaction, url: str):
         voice_client.play(source)
         now_playing[interaction.guild.id] = title
 
-        await interaction.followup.send(f"🎶 **{title}** 재생 중!")
+        if interaction.response.is_done():
+            await interaction.followup.send(f"🎶 **{title}** 재생 중!")
+        else:
+            await interaction.response.send_message(f"🎶 **{title}** 재생 중!")
 
     except Exception as e:
         print(f"[재생 오류]: {type(e).__name__} - {e}")
-        await interaction.followup.send(f"❌ 오류 발생:\n```{type(e).__name__}: {e}```", ephemeral=True)
+        if interaction.response.is_done():
+            await interaction.followup.send(f"❌ 오류 발생:\n```{type(e).__name__}: {e}```", ephemeral=True)
+        else:
+            await interaction.response.send_message(f"❌ 오류 발생:\n```{type(e).__name__}: {e}```", ephemeral=True)
 
 @bot.tree.command(name="검색", description="노래를 검색해 재생합니다.")
 @app_commands.describe(query="검색할 노래 제목")
 async def search(interaction: discord.Interaction, query: str):
     await interaction.response.defer(ephemeral=True, thinking=True)
 
-    ydl_opts = {
-        'quiet': True,
-        'format': 'bestaudio/best',
-        'default_search': 'ytsearch20',  # 20개 먼저 검색
-        'nocheckcertificate': True,
-        'skip_download': True,
-        'no_warnings': True,
-        'http_headers': {'User-Agent': 'Mozilla/5.0'},
-        'geo_bypass': True,  # 지역 제한 우회 옵션
-    }
-
     try:
+        ydl_opts = {
+            'quiet': True,
+            'format': 'bestaudio/best',
+            'default_search': 'ytsearch5',
+            'nocheckcertificate': True,
+            'skip_download': True,
+            'no_warnings': True,
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Referer': 'https://www.youtube.com/'
+            },
+        }
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            search_results = ydl.extract_info(query, download=False)
-            entries = search_results.get('entries', [])
+            info = ydl.extract_info(query, download=False)
+            videos = info.get('entries', [])
 
-            valid_videos = []
-            for video in entries:
-                url = video.get('webpage_url')
-                if not url:
-                    continue
-                try:
-                    # 개별 영상 접근 테스트
-                    info = ydl.extract_info(url, download=False)
-                    if info.get('is_unavailable'):
-                        continue
-                    if info.get('duration', 0) <= 0:
-                        continue
-                    valid_videos.append(info)
-                    if len(valid_videos) >= 5:
-                        break
-                except Exception:
-                    continue
+            # unavailable 영상이나 길이 없는 영상은 필터링
+            videos = [
+                v for v in videos
+                if v and not v.get('is_unavailable') and 'webpage_url' in v and v.get('duration') and v['duration'] > 0
+            ]
 
-            if not valid_videos:
+            if not videos:
                 await interaction.followup.send("❌ 재생 가능한 영상이 없습니다.", ephemeral=True)
                 return
 
@@ -149,7 +162,7 @@ async def search(interaction: discord.Interaction, query: str):
                         value=video['webpage_url'],
                         description=f"{video.get('duration_string', '길이 정보 없음')}"
                     )
-                    for i, video in enumerate(videos)
+                    for i, video in enumerate(videos[:5])
                 ]
                 super().__init__(placeholder="노래를 선택하세요!", options=options)
 
@@ -158,7 +171,7 @@ async def search(interaction: discord.Interaction, query: str):
                 await play_song(interaction2, self.values[0])
 
         view = discord.ui.View(timeout=60)
-        view.add_item(SongSelect(valid_videos))
+        view.add_item(SongSelect(videos))
 
         embed = discord.Embed(title=f"🔍 '{query}' 검색 결과", color=0x1DB954)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
