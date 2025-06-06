@@ -103,36 +103,43 @@ async def play_song(interaction: discord.Interaction, url: str):
 async def search(interaction: discord.Interaction, query: str):
     await interaction.response.defer(ephemeral=True, thinking=True)
 
+    ydl_opts = {
+        'quiet': True,
+        'format': 'bestaudio/best',
+        'default_search': 'ytsearch20',  # 20개 먼저 검색
+        'nocheckcertificate': True,
+        'skip_download': True,
+        'no_warnings': True,
+        'http_headers': {'User-Agent': 'Mozilla/5.0'},
+        'geo_bypass': True,  # 지역 제한 우회 옵션
+    }
+
     try:
-        ydl_opts = {
-            'quiet': True,
-            'format': 'bestaudio/best',
-            'default_search': 'ytsearch10',
-            'nocheckcertificate': True,
-            'skip_download': True,
-            'no_warnings': True,
-            'geo_bypass': True,
-            'http_headers': {'User-Agent': 'Mozilla/5.0'},
-            'geo_bypass_country': 'US',
-            'geo_bypass_ip_block': 'US',
-        }
-
-        videos = []
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(query, download=False)
-            entries = info.get('entries', [])
-            for video in entries:
-                try:
-                    if (not video.get('is_unavailable')) and ('webpage_url' in video) and video.get('duration', 0) > 0:
-                        videos.append(video)
-                    if len(videos) >= 5:
-                        break
-                except Exception as e:
-                    continue  # 오류 난 항목은 건너뜀
+            search_results = ydl.extract_info(query, download=False)
+            entries = search_results.get('entries', [])
 
-        if not videos:
-            await interaction.followup.send("❌ 재생 가능한 영상이 없습니다.", ephemeral=True)
-            return
+            valid_videos = []
+            for video in entries:
+                url = video.get('webpage_url')
+                if not url:
+                    continue
+                try:
+                    # 개별 영상 접근 테스트
+                    info = ydl.extract_info(url, download=False)
+                    if info.get('is_unavailable'):
+                        continue
+                    if info.get('duration', 0) <= 0:
+                        continue
+                    valid_videos.append(info)
+                    if len(valid_videos) >= 5:
+                        break
+                except Exception:
+                    continue
+
+            if not valid_videos:
+                await interaction.followup.send("❌ 재생 가능한 영상이 없습니다.", ephemeral=True)
+                return
 
         class SongSelect(discord.ui.Select):
             def __init__(self, videos):
@@ -147,18 +154,18 @@ async def search(interaction: discord.Interaction, query: str):
                 super().__init__(placeholder="노래를 선택하세요!", options=options)
 
             async def callback(self, interaction2: discord.Interaction):
-                await interaction2.response.send_message("🎵 노래를 재생합니다...", ephemeral=True)
+                await interaction2.response.send_message("노래를 재생합니다...", ephemeral=True)
                 await play_song(interaction2, self.values[0])
 
         view = discord.ui.View(timeout=60)
-        view.add_item(SongSelect(videos))
+        view.add_item(SongSelect(valid_videos))
 
         embed = discord.Embed(title=f"🔍 '{query}' 검색 결과", color=0x1DB954)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     except Exception as e:
         print(f"[검색 오류]: {type(e).__name__} - {e}")
-        await interaction.followup.send(f"❌ 오류 발생:\n```{type(e).__name__}: {e}```", ephemeral=True)
+        await interaction.followup.send(f"오류 발생:\n```{type(e).__name__}: {e}```", ephemeral=True)
 
 @bot.tree.command(name="정지", description="노래 정지 및 퇴장")
 async def stop(interaction: discord.Interaction):
